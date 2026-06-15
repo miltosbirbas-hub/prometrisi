@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>Προμέτρηση — Μπετόν & Σίδηρος ανά Στάθμη</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#0A1730">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="Προμέτρηση">
+<link rel="apple-touch-icon" href="icons/icon-192.png">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/dxf-parser/1.1.2/dxf-parser.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
+<style>
+:root{
+  --bg:#0b0f14; --panel:#121922; --panel2:#0e141b; --line:#1f2c38;
+  --ink:#e7eef5; --muted:#7d93a6; --faint:#4a5d6e;
+  --beton:#d98c2b; --beton-soft:#3a2c15;
+  --steel:#3fa7d6; --steel-soft:#14303d;
+  --ok:#5bbf8a; --warn:#d9534f;
+  --accent:#d98c2b;
+  --mono:"DejaVu Sans Mono",ui-monospace,monospace;
+}
+*{box-sizing:border-box}
+html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+  font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;font-size:14px}
+button{font-family:inherit;cursor:pointer}
+input,select{font-family:inherit;font-size:13px}
+
+.app{display:grid;grid-template-rows:auto 1fr;height:100vh}
+header{display:flex;align-items:center;gap:16px;padding:12px 20px;
+  border-bottom:1px solid var(--line);background:var(--panel2)}
+.logo{font-weight:800;letter-spacing:-0.5px;font-size:17px}
+.logo .a{color:var(--beton)}.logo .b{color:var(--steel)}
+.tag{color:var(--muted);font-size:12px;border-left:1px solid var(--line);padding-left:16px}
+header .sp{flex:1}
+.tabs{display:flex;gap:4px}
+.tab{background:transparent;border:1px solid transparent;color:var(--muted);
+  padding:7px 14px;border-radius:7px;font-size:13px}
+.tab.active{background:var(--panel);border-color:var(--line);color:var(--ink)}
+.tab:hover{color:var(--ink)}
+
+.main{display:grid;grid-template-columns:320px 1fr;overflow:hidden}
+.side{border-right:1px solid var(--line);background:var(--panel2);overflow-y:auto;padding:16px}
+.content{overflow:hidden;position:relative}
+.view{display:none;height:100%;overflow:auto}
+.view.active{display:block}
+
+.drop{border:2px dashed var(--line);border-radius:12px;padding:26px 16px;text-align:center;
+  color:var(--muted);transition:.15s;margin-bottom:14px}
+.drop.hot{border-color:var(--beton);background:var(--beton-soft);color:var(--ink)}
+.drop b{color:var(--ink)}
+.drop small{display:block;margin-top:6px;color:var(--faint)}
+
+.sec{margin:18px 0}
+.sec h3{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);
+  margin:0 0 10px;font-weight:700}
+.flist{display:flex;flex-direction:column;gap:6px}
+.fitem{display:flex;align-items:center;gap:8px;background:var(--panel);border:1px solid var(--line);
+  border-radius:8px;padding:8px 10px;font-size:12px}
+.fitem .ic{width:22px;height:22px;border-radius:5px;display:grid;place-items:center;font-size:10px;font-weight:700}
+.fitem .ic.dxf{background:var(--beton-soft);color:var(--beton)}
+.fitem .ic.pdf{background:var(--steel-soft);color:var(--steel)}
+.fitem .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.fitem .rm{background:transparent;border:0;color:var(--faint);font-size:15px;padding:0 4px}
+.fitem .rm:hover{color:var(--warn)}
+
+.btn{background:var(--accent);color:#1a1206;border:0;border-radius:8px;padding:9px 14px;
+  font-weight:700;font-size:13px;width:100%}
+.btn.ghost{background:transparent;border:1px solid var(--line);color:var(--ink);font-weight:600}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn.sm{padding:6px 10px;font-size:12px;width:auto}
+
+label.fld{display:block;margin-bottom:10px;font-size:12px;color:var(--muted)}
+label.fld input,label.fld select{width:100%;margin-top:4px;background:var(--panel);
+  border:1px solid var(--line);color:var(--ink);border-radius:7px;padding:7px 9px}
+
+/* Canvas viewer */
+.viewer-wrap{height:100%;display:flex;flex-direction:column}
+.vtoolbar{display:flex;align-items:center;gap:8px;padding:8px 14px;border-bottom:1px solid var(--line);
+  background:var(--panel2);flex-wrap:wrap}
+.vtoolbar .sp{flex:1}
+.chip{font-size:11px;color:var(--muted);background:var(--panel);border:1px solid var(--line);
+  border-radius:20px;padding:4px 10px}
+.canvas-host{flex:1;position:relative;overflow:hidden;background:#070b0f;
+  background-image:radial-gradient(circle at 1px 1px,#141d27 1px,transparent 0);background-size:26px 26px}
+canvas{position:absolute;top:0;left:0}
+.pdf-host{flex:1;overflow:auto;background:#070b0f;display:flex;justify-content:center;padding:20px}
+.pdf-host canvas{position:relative;box-shadow:0 4px 30px rgba(0,0,0,.6)}
+
+/* Tables */
+.panel-pad{padding:22px 26px}
+.h1{font-size:20px;font-weight:800;margin:0 0 4px;letter-spacing:-0.4px}
+.sub{color:var(--muted);font-size:13px;margin:0 0 18px}
+table.tbl{width:100%;border-collapse:collapse;font-size:13px;margin-bottom:24px}
+table.tbl th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.6px;
+  color:var(--muted);font-weight:700;padding:9px 12px;border-bottom:1px solid var(--line)}
+table.tbl td{padding:9px 12px;border-bottom:1px solid var(--panel)}
+table.tbl tr:hover td{background:var(--panel2)}
+table.tbl td.num,table.tbl th.num{text-align:right;font-variant-numeric:tabular-nums;font-family:var(--mono)}
+.lvlhead td{background:var(--panel);font-weight:800;font-size:13px;color:var(--ink);
+  border-top:2px solid var(--line)}
+.totrow td{font-weight:800;border-top:2px solid var(--line);background:var(--panel2)}
+.pill{display:inline-block;width:9px;height:9px;border-radius:3px;margin-right:7px;vertical-align:middle}
+.pill.beton{background:var(--beton)}.pill.steel{background:var(--steel)}
+
+.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:14px;margin-bottom:26px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px 18px}
+.card .k{font-size:11px;text-transform:uppercase;letter-spacing:.8px;color:var(--muted)}
+.card .v{font-size:26px;font-weight:800;margin-top:6px;font-family:var(--mono);letter-spacing:-1px}
+.card .u{font-size:13px;color:var(--muted);font-weight:500}
+.card.b{border-top:3px solid var(--beton)}
+.card.s{border-top:3px solid var(--steel)}
+
+/* Assumptions editor */
+table.edit{width:100%;border-collapse:collapse;font-size:13px}
+table.edit th{text-align:left;font-size:11px;text-transform:uppercase;letter-spacing:.6px;
+  color:var(--muted);padding:8px 10px;border-bottom:1px solid var(--line)}
+table.edit td{padding:5px 8px;border-bottom:1px solid var(--panel)}
+table.edit input,table.edit select{width:100%;background:var(--panel);border:1px solid var(--line);
+  color:var(--ink);border-radius:6px;padding:6px 8px;font-family:var(--mono)}
+table.edit input[type=color]{padding:2px;height:32px}
+.addrow{margin-top:12px;display:flex;gap:8px}
+
+.empty{display:grid;place-items:center;height:100%;color:var(--faint);text-align:center;padding:40px}
+.empty .big{font-size:48px;margin-bottom:14px;opacity:.5}
+
+.toast{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);background:var(--panel);
+  border:1px solid var(--line);border-radius:10px;padding:11px 18px;font-size:13px;
+  box-shadow:0 8px 30px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:.25s;z-index:99}
+.toast.show{opacity:1}
+.toast.err{border-color:var(--warn);color:#ffb3b0}
+
+.layerlist{display:flex;flex-direction:column;gap:4px;max-height:240px;overflow:auto;margin-top:6px}
+.layerlist .lrow{display:flex;align-items:center;gap:8px;font-size:12px;padding:4px 6px;border-radius:6px}
+.layerlist .lrow:hover{background:var(--panel)}
+.layerlist .sw{width:11px;height:11px;border-radius:3px;flex:none}
+.layerlist .ln{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-family:var(--mono)}
+.layerlist .lc{color:var(--faint);font-size:11px}
+.role{background:var(--panel);border:1px solid var(--line);color:var(--ink);border-radius:6px;
+  padding:3px 5px;font-size:11px}
+.note{font-size:11px;color:var(--faint);line-height:1.5;margin-top:8px}
+hr.d{border:0;border-top:1px solid var(--line);margin:18px 0}
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div class="logo"><span class="a">προ</span><span class="b">μέτρηση</span></div>
+    <div class="tag">Μπετόν &amp; Οπλισμός ανά στάθμη · DXF / PDF</div>
+    <div class="sp"></div>
+    <button id="installBtn" class="btn ghost sm" style="display:none;width:auto;margin-right:8px">⬇ Εγκατάσταση</button>
+    <div class="tabs">
+      <button class="tab active" data-view="viewer">Σχέδια</button>
+      <button class="tab" data-view="assumptions">Παραδοχές</button>
+      <button class="tab" data-view="results">Προμέτρηση &amp; Τεύχος</button>
+    </div>
+  </header>
+
+  <div class="main">
+    <aside class="side">
+      <div class="drop" id="drop">
+        <b>Σύρε DXF / PDF</b>
+        <small>ξυλότυποι, κατόψεις, τομές, τοπογραφικό</small>
+        <input type="file" id="file" multiple accept=".dxf,.pdf" style="display:none">
+      </div>
+
+      <div class="sec">
+        <h3>Αρχεία</h3>
+        <div class="flist" id="flist"><div class="note">Κανένα αρχείο ακόμη.</div></div>
+      </div>
+
+      <div class="sec" id="lvlSec" style="display:none">
+        <h3>Στάθμη ενεργού DXF</h3>
+        <label class="fld">Όνομα στάθμης
+          <input id="lvlName" placeholder="π.χ. Υπόγειο, Ισόγειο, Α' Όροφος">
+        </label>
+        <label class="fld">Μονάδες σχεδίου
+          <select id="units">
+            <option value="0.001">Χιλιοστά (mm)</option>
+            <option value="0.01">Εκατοστά (cm)</option>
+            <option value="1" selected>Μέτρα (m)</option>
+          </select>
+        </label>
+      </div>
+
+      <div class="sec" id="layerSec" style="display:none">
+        <h3>Layers ενεργού DXF</h3>
+        <div class="layerlist" id="layerlist"></div>
+        <div class="note">Αντιστοίχισε κάθε layer σε ρόλο. Τα κλειστά polylines μετρώνται ως εμβαδά μπετόν· οι γραμμές οπλισμού ως μήκη σιδήρου.</div>
+      </div>
+
+      <button class="btn" id="calcBtn" disabled>Υπολογισμός προμέτρησης</button>
+    </aside>
+
+    <section class="content">
+      <!-- VIEWER -->
+      <div class="view active" id="view-viewer">
+        <div class="viewer-wrap" id="vwrap">
+          <div class="empty" id="vEmpty">
+            <div>
+              <div class="big">⬓</div>
+              Ανέβασε DXF/PDF σχεδίων για προβολή, ή το στατικό τεύχος (PDF) για αυτόματη ανάγνωση ποσοτήτων.
+            </div>
+          </div>
+          <div class="viewer-wrap" id="dxfViewer" style="display:none">
+            <div class="vtoolbar">
+              <span class="chip" id="vName">—</span>
+              <span class="chip" id="vStat">—</span>
+              <div class="sp"></div>
+              <button class="btn ghost sm" id="vFit">Προσαρμογή</button>
+              <span class="chip">scroll: zoom · drag: pan</span>
+            </div>
+            <div class="canvas-host" id="chost"><canvas id="cv"></canvas></div>
+          </div>
+          <div class="viewer-wrap" id="pdfViewer" style="display:none">
+            <div class="vtoolbar">
+              <span class="chip" id="pName">—</span>
+              <button class="btn ghost sm" id="pPrev">‹</button>
+              <span class="chip" id="pPage">1/1</span>
+              <button class="btn ghost sm" id="pNext">›</button>
+              <button class="btn ghost sm" id="pZin">+</button>
+              <button class="btn ghost sm" id="pZout">−</button>
+            </div>
+            <div class="pdf-host"><canvas id="pcv"></canvas></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- ASSUMPTIONS -->
+      <div class="view" id="view-assumptions">
+        <div class="panel-pad">
+          <h1 class="h1">Παραδοχές μελέτης</h1>
+          <p class="sub">Ρόλοι στοιχείων, πάχη/ύψη μπετόν και συντελεστές οπλισμού. Εφαρμόζονται σε όλες τις στάθμες.</p>
+
+          <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Στοιχεία μπετόν</h3>
+          <table class="edit" id="betonTbl">
+            <thead><tr>
+              <th>Ρόλος</th><th>Τύπος μέτρησης</th><th>Πάχος / Ύψος (m)</th>
+              <th>kg σιδ. / m³ (default)</th><th>Χρώμα</th><th></th>
+            </tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="addrow"><button class="btn ghost sm" id="addBeton">+ Ρόλος μπετόν</button></div>
+
+          <hr class="d">
+          <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Οπλισμός — βάρη ανά διάμετρο</h3>
+          <p class="note" style="margin-top:0">Όταν ένα layer οπλισμού φέρει διάμετρο (π.χ. layer "Φ12"), το μήκος × βάρος/m δίνει kg. Default: χάλυβας B500C, ρ=7850 kg/m³.</p>
+          <table class="edit" id="rebarTbl">
+            <thead><tr><th>Διάμετρος</th><th>kg / m</th><th>Layer keyword</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="addrow"><button class="btn ghost sm" id="addRebar">+ Διάμετρος</button></div>
+        </div>
+      </div>
+
+      <!-- RESULTS -->
+      <div class="view" id="view-results">
+        <div class="panel-pad" id="resPad">
+          <div class="empty"><div><div class="big">▦</div>Δεν έχει γίνει υπολογισμός ακόμη.<br>Αντιστοίχισε layers και πάτησε «Υπολογισμός».</div></div>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+<div class="toast" id="toast"></div>
+
+<script src="app.js"></script>
+<script>
+/* PWA registration */
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch(err => console.warn("SW reg failed", err));
+  });
+}
+/* Install prompt — εμφανίζει κουμπί «Εγκατάσταση» όταν είναι διαθέσιμο */
+let deferredPrompt = null;
+window.addEventListener("beforeinstallprompt", e => {
+  e.preventDefault();
+  deferredPrompt = e;
+  const b = document.getElementById("installBtn");
+  if (b) b.style.display = "inline-flex";
+});
+document.addEventListener("click", e => {
+  if (e.target && e.target.id === "installBtn" && deferredPrompt) {
+    deferredPrompt.prompt();
+    deferredPrompt.userChoice.finally(() => { deferredPrompt = null; e.target.style.display = "none"; });
+  }
+});
+</script>
+</body>
+</html>
