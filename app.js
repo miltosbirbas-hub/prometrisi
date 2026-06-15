@@ -120,10 +120,17 @@ async function handleFiles(list){
         const fullText=await extractPdfText(doc);
         const parsed=parseStudy(fullText);
         if(parsed){ parsed.fileName=f.name; state.study=parsed;
-          toast(`Τεύχος αναγνωρίστηκε: ${parsed.levels.length} στάθμες, ${fmt(parsed.total.concrete)} m³`);
+          const tot = parsed.total ? fmt(parsed.total.concrete) : "—";
+          toast(`✓ Τεύχος: ${parsed.levels.length} στάθμες, ${tot} m³ — δες «Προμέτρηση & Τεύχος»`);
           renderResults();
+          // αυτόματη μετάβαση στην καρτέλα αποτελεσμάτων
+          const rt=document.querySelector('.tab[data-view="results"]'); if(rt) rt.click();
+        } else {
+          // PDF που δεν είναι αναγνωρίσιμο τεύχος Fespa — απλό σχέδιο/ξυλότυπος
+          toast(`«${f.name}»: προβολή μόνο (δεν είναι τεύχος Fespa με πίνακες προμέτρησης).`);
         }
-      }catch(err){ console.warn("study parse failed",err); }
+      }catch(err){ console.warn("study parse failed",err);
+        toast("Δεν διαβάστηκε το PDF ως τεύχος — προβάλλεται μόνο.",true); }
     } else { toast("Μη υποστηριζόμενο: "+f.name,true); continue; }
   }
   renderFiles();
@@ -247,9 +254,9 @@ function parseStudy(txt){
   const startIdx=txt.indexOf("Συνολική προμέτρηση κτιρίου");
   const section = startIdx>=0 ? txt.slice(startIdx) : txt;
 
-  // materials
-  const gradeM=txt.match(/Σκυρόδεμα\s*[:\s]\s*(C\d+\/\d+)/);
-  const steelM=txt.match(/Χάλυβας\s*[:\s]\s*(B\d+\w*)/);
+  // materials (πολλαπλές μορφές: "Σκυρόδεμα: C30/37", "Σκυρόδεμα C25/30", ": C25/30")
+  const gradeM = txt.match(/Σκυρόδεμα[:\s]*\s*(C\d+\/\d+)/) || txt.match(/\bC(?:12|16|20|25|30|35|40|45|50)\/\d+\b/);
+  const steelM = txt.match(/Χάλυβας[:\s]*\s*(B\d+\w*)/) || txt.match(/\bB500[A-C]\b/);
 
   // per-level blocks: "Σύνολο ορόφου :N"
   const headerRe=/Προμέτρηση[:\s]/g;
@@ -276,8 +283,8 @@ function parseStudy(txt){
   }
   if(!levels.length) return null;
   return {
-    grade: gradeM?gradeM[1]:"—",
-    steelGrade: steelM?steelM[1]:"B500C",
+    grade: gradeM?(gradeM[1]||gradeM[0]):"—",
+    steelGrade: steelM?(steelM[1]||steelM[0]):"B500C",
     levels, total,
   };
 }
