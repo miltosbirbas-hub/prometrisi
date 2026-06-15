@@ -50,7 +50,7 @@ header .sp{flex:1}
 .view{display:none;height:100%;overflow:auto}
 .view.active{display:block}
 
-.drop{border:2px dashed var(--line);border-radius:12px;padding:26px 16px;text-align:center;
+.drop{display:block;border:2px dashed var(--line);border-radius:12px;padding:26px 16px;text-align:center;
   color:var(--muted);transition:.15s;margin-bottom:14px}
 .drop.hot{border-color:var(--beton);background:var(--beton-soft);color:var(--ink)}
 .drop b{color:var(--ink)}
@@ -163,11 +163,11 @@ hr.d{border:0;border-top:1px solid var(--line);margin:18px 0}
 
   <div class="main">
     <aside class="side">
-      <div class="drop" id="drop">
-        <b>Σύρε DXF / PDF</b>
-        <small>ξυλότυποι, κατόψεις, τομές, τοπογραφικό</small>
-        <input type="file" id="file" multiple accept=".dxf,.pdf" style="display:none">
-      </div>
+      <label class="drop" id="drop" for="file">
+        <b>Σύρε ή κάνε κλικ — DXF / PDF</b>
+        <small>ξυλότυποι, κατόψεις, τομές, τοπογραφικό, στατικό τεύχος</small>
+      </label>
+      <input type="file" id="file" multiple accept=".dxf,.pdf" style="display:none">
 
       <div class="sec">
         <h3>Αρχεία</h3>

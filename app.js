@@ -74,10 +74,11 @@ const parser = new DxfParser();
 
 $("#file").addEventListener("change",e=>handleFiles(e.target.files));
 const drop=$("#drop");
-drop.addEventListener("click",()=>$("#file").click());
+drop.style.cursor="pointer";
+// Το click ανοίγει native μέσω <label for="file"> — εδώ μόνο drag & drop
 ["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("hot");}));
 ["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("hot");}));
-drop.addEventListener("drop",e=>handleFiles(e.dataTransfer.files));
+drop.addEventListener("drop",e=>{e.preventDefault();handleFiles(e.dataTransfer.files);});
 
 async function handleFiles(list){
   for(const f of list){
