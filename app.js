@@ -1,6 +1,8 @@
 /* ========= Προμέτρηση — app logic ========= */
-pdfjsLib.GlobalWorkerOptions.workerSrc =
-  "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+if (typeof pdfjsLib !== "undefined" && pdfjsLib.GlobalWorkerOptions) {
+  pdfjsLib.GlobalWorkerOptions.workerSrc =
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+}
 
 const $ = s => document.querySelector(s);
 const fmt = (n,d=2)=> (n==null||isNaN(n))?"—":Number(n).toLocaleString("el-GR",{minimumFractionDigits:d,maximumFractionDigits:d});
@@ -74,7 +76,16 @@ function entityArea(e){
 }
 
 /* ---------- File handling ---------- */
-const parser = new DxfParser();
+let parser = null;
+function getParser(){
+  if(parser) return parser;
+  if(typeof DxfParser==="undefined"){
+    toast("Η βιβλιοθήκη DXF δεν φόρτωσε — έλεγξε τη σύνδεση και κάνε ανανέωση.",true);
+    return null;
+  }
+  parser = new DxfParser();
+  return parser;
+}
 
 $("#file").addEventListener("change",e=>handleFiles(e.target.files));
 const drop=$("#drop");
@@ -90,8 +101,9 @@ async function handleFiles(list){
     if(ext==="dxf"){
       const txt=await f.text();
       let dxf;
-      try{ dxf=parser.parseSync(txt); }
-      catch(err){ toast("Σφάλμα ανάγνωσης DXF: "+f.name,true); continue; }
+      const P=getParser(); if(!P) continue;
+      try{ dxf=P.parseSync(txt); }
+      catch(err){ toast("Σφάλμα ανάγνωσης DXF: "+f.name,true); console.error(err); continue; }
       const layers=collectLayers(dxf);
       const roles={};
       layers.forEach(l=>roles[l.name]=guessRole(l.name));
@@ -780,6 +792,11 @@ function exportPdf(){
 
 /* ---------- init ---------- */
 renderBetonTbl();renderRebarTbl();
+
+// Προειδοποίηση αν δεν φόρτωσαν οι βιβλιοθήκες CDN
+if (window.__cdnFail || typeof DxfParser==="undefined") {
+  setTimeout(()=>toast("Κάποιες βιβλιοθήκες δεν φόρτωσαν (CDN). Έλεγξε σύνδεση & κάνε ανανέωση.",true), 400);
+}
 
 // ζούμι/πρέσες global settings
 const pw=$("#pumpWaste"), dl=$("#defaultLoad");
