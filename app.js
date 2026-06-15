@@ -29,6 +29,10 @@ const state = {
     {dia:"Φ16", kgm:1.578, key:"16"},
     {dia:"Φ20", kgm:2.466, key:"20"},
   ],
+  // Απώλειες σκυροδέτησης (ζούμι/πρέσες) ανά στάθμη
+  pumpWaste: 0.75,        // m³ που κρατάει κάθε πρέσα (ζούμι)
+  defaultLoad: 8,         // ενδεικτικό m³/πρέσα για αυτόματη εκτίμηση πλήθους πρεσών
+  levelCasting: {},       // { levelName: {pumps:Number, mode:"mono"|"kostoumi"} }
 };
 const ROLES = ["—","ΠΛΑΚΑ","ΥΠΟΣΤΥΛΩΜΑΤΑ","ΔΟΚΟΙ","ΤΟΙΧΙΟ","ΘΕΜΕΛΙΩΣΗ","ΟΠΛΙΣΜΟΣ","ΙΣΟΥΨΕΙΣ","ΑΓΝΟΗΣΗ"];
 
@@ -460,6 +464,19 @@ function calculate(){
   Object.values(levels).forEach(L=>{
     Object.values(L.steelByDia).forEach(s=>{s.kg=s.len*s.kgm;L.steelTotal+=s.kg;});
   });
+  // ζούμι / πρέσες ανά στάθμη
+  Object.values(levels).forEach(L=>{
+    const net=Object.values(L.beton).reduce((a,b)=>a+b.vol,0);
+    const cfg=state.levelCasting[L.name] || {};
+    // αυτόματη εκτίμηση πρεσών αν δεν έχει οριστεί
+    const pumps = (cfg.pumps!=null) ? cfg.pumps : Math.max(1, Math.ceil(net/(state.defaultLoad||8)));
+    const waste = pumps * (state.pumpWaste||0);
+    L.netConcrete = net;
+    L.pumps = pumps;
+    L.waste = waste;
+    L.grossConcrete = net + waste;
+    L.castMode = cfg.mode || "mono";
+  });
   state.results={levels};
   renderResults();
   document.querySelector('.tab[data-view="results"]').click();
@@ -542,6 +559,33 @@ function renderResults(){
   const x1=$("#expXls"); if(x1) x1.onclick=exportXlsx;
   const x2=$("#expPdf"); if(x2) x2.onclick=exportPdf;
   const x3=$("#expStudyXls"); if(x3) x3.onclick=exportStudyXlsx;
+
+  // ζούμι/πρέσες editable controls — αλλαγή = αναυπολογισμός & rerender
+  document.querySelectorAll(".pumpinp").forEach(inp=>inp.onchange=e=>{
+    const lvl=e.target.dataset.lvl; const v=Math.max(0,parseInt(e.target.value)||0);
+    state.levelCasting[lvl]=state.levelCasting[lvl]||{};
+    state.levelCasting[lvl].pumps=v;
+    recomputeWaste(); renderResults();
+  });
+  document.querySelectorAll(".castmode").forEach(sel=>sel.onchange=e=>{
+    const lvl=e.target.dataset.lvl; const mode=e.target.value;
+    state.levelCasting[lvl]=state.levelCasting[lvl]||{};
+    state.levelCasting[lvl].mode=mode;
+    // Κουστούμι: ενδεικτικά +1 πρέσα λόγω διακοπών σκυροδέτησης, αν δεν έχει οριστεί χειροκίνητα
+    renderResults();
+  });
+}
+
+// Ξαναϋπολογίζει μόνο τα ζούμι/πρέσες χωρίς να ξανατρέξει όλη η προμέτρηση
+function recomputeWaste(){
+  if(!state.results) return;
+  Object.values(state.results.levels).forEach(L=>{
+    const net=L.netConcrete!=null?L.netConcrete:Object.values(L.beton).reduce((a,b)=>a+b.vol,0);
+    const cfg=state.levelCasting[L.name]||{};
+    const pumps=(cfg.pumps!=null)?cfg.pumps:Math.max(1,Math.ceil(net/(state.defaultLoad||8)));
+    L.netConcrete=net; L.pumps=pumps; L.waste=pumps*(state.pumpWaste||0);
+    L.grossConcrete=net+L.waste; L.castMode=cfg.mode||"mono";
+  });
 }
 
 function renderComparison(){
@@ -583,25 +627,57 @@ function matchLevel(studyLvl,dxfLevels){
 
 function renderDxfResults(){
   const Ls=Object.values(state.results.levels);
-  let totVol=0,totSteel=0;
-  Ls.forEach(L=>{Object.values(L.beton).forEach(b=>totVol+=b.vol);totSteel+=L.steelTotal;
+  let totNet=0,totWaste=0,totGross=0,totSteel=0;
+  Ls.forEach(L=>{
+    totNet+=L.netConcrete||0; totWaste+=L.waste||0; totGross+=L.grossConcrete||0;
+    totSteel+=L.steelTotal;
     if(L.steelTotal===0) Object.values(L.beton).forEach(b=>totSteel+=b.steelKg);});
 
   let html=`<h1 class="h1" style="margin-top:30px">Προμέτρηση από σχέδια (DXF)</h1>
-    <p class="sub">${Ls.length} στάθμες · παραδοχές μελέτης ενεργές</p>
+    <p class="sub">${Ls.length} στάθμες · παραδοχές μελέτης ενεργές · ζούμι ${fmt(state.pumpWaste)} m³/πρέσα</p>
     <div class="cards">
-      <div class="card b"><div class="k"><span class="pill beton"></span>Σύνολο μπετόν</div>
-        <div class="v">${fmt(totVol)} <span class="u">m³</span></div></div>
-      <div class="card s"><div class="k"><span class="pill steel"></span>Σύνολο οπλισμού</div>
+      <div class="card b"><div class="k"><span class="pill beton"></span>Καθαρό μπετόν</div>
+        <div class="v">${fmt(totNet)} <span class="u">m³</span></div></div>
+      <div class="card" style="border-top:3px solid var(--warn)"><div class="k">Ζούμι / πρέσες</div>
+        <div class="v">${fmt(totWaste)} <span class="u">m³</span></div></div>
+      <div class="card b"><div class="k"><span class="pill beton"></span>Σύνολο παραγγελίας</div>
+        <div class="v">${fmt(totGross)} <span class="u">m³</span></div></div>
+      <div class="card s"><div class="k"><span class="pill steel"></span>Οπλισμός</div>
         <div class="v">${fmt(totSteel,0)} <span class="u">kg</span></div></div>
-      <div class="card"><div class="k">Αναλογία</div>
-        <div class="v">${fmt(totVol?totSteel/totVol:0,0)} <span class="u">kg/m³</span></div></div>
     </div>
     <div style="display:flex;gap:8px;margin-bottom:18px">
       <button class="btn sm" id="expXls">⬇ Excel</button>
       <button class="btn sm ghost" id="expPdf">⬇ PDF</button>
     </div>`;
-  html+=`<table class="tbl"><thead><tr>
+
+  // ---- Σκυροδέτηση ανά στάθμη (ζούμι/πρέσες) — editable ----
+  html+=`<h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">
+    Σκυροδέτηση ανά στάθμη</h3>
+    <table class="tbl"><thead><tr><th>Στάθμη</th><th>Τρόπος</th>
+    <th class="num">Πρέσες</th><th class="num">Καθαρό (m³)</th>
+    <th class="num">Ζούμι (m³)</th><th class="num">Παραγγελία (m³)</th></tr></thead><tbody>`;
+  Ls.forEach((L,i)=>{
+    html+=`<tr><td>${L.name}</td>
+      <td><select class="role castmode" data-lvl="${L.name}">
+        <option value="mono" ${L.castMode==="mono"?"selected":""}>Μονολιθικά</option>
+        <option value="kostoumi" ${L.castMode==="kostoumi"?"selected":""}>Κουστούμι</option>
+      </select></td>
+      <td class="num"><input class="pumpinp" data-lvl="${L.name}" type="number" min="0" step="1"
+        value="${L.pumps}" style="width:64px;text-align:right;background:var(--panel);
+        border:1px solid var(--line);color:var(--ink);border-radius:6px;padding:5px 7px;font-family:var(--mono)"></td>
+      <td class="num">${fmt(L.netConcrete)}</td>
+      <td class="num" style="color:var(--warn)">+${fmt(L.waste)}</td>
+      <td class="num"><b>${fmt(L.grossConcrete)}</b></td></tr>`;
+  });
+  html+=`<tr class="totrow"><td>ΣΥΝΟΛΟ</td><td></td>
+    <td class="num">${Ls.reduce((a,L)=>a+(L.pumps||0),0)}</td>
+    <td class="num">${fmt(totNet)}</td><td class="num">+${fmt(totWaste)}</td>
+    <td class="num">${fmt(totGross)}</td></tr></tbody></table>
+    <p class="note" style="margin-top:0">Κάθε πρέσα κρατάει ${fmt(state.pumpWaste)} m³ (ζούμι) — μη ανακτήσιμο. Το πλήθος πρεσών εκτιμάται αυτόματα (≈${state.defaultLoad} m³/πρέσα)· διόρθωσέ το χειροκίνητα. Το «Κουστούμι» συνεπάγεται περισσότερες σκυροδετήσεις άρα συνήθως περισσότερες πρέσες.</p>`;
+
+  html+=`<h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">
+    <span class="pill beton"></span>Σκυρόδεμα ανά στοιχείο</h3>
+    <table class="tbl"><thead><tr>
       <th>Στοιχείο</th><th class="num">Εμβαδόν/Μήκος</th><th class="num">Πάχος/Ύψος (m)</th>
       <th class="num">Όγκος (m³)</th><th class="num">Οπλ. παραδοχής (kg)</th></tr></thead><tbody>`;
   Ls.forEach(L=>{
@@ -616,11 +692,11 @@ function renderDxfResults(){
         <td class="num">${fmt(b.steelKg,0)}</td></tr>`;
       lv+=b.vol;lk+=b.steelKg;
     });
-    html+=`<tr class="totrow"><td>Σύνολο ${L.name}</td><td></td><td></td>
+    html+=`<tr class="totrow"><td>Καθαρό ${L.name}</td><td></td><td></td>
       <td class="num">${fmt(lv)}</td><td class="num">${fmt(lk,0)}</td></tr>`;
   });
-  html+=`<tr class="totrow"><td>ΓΕΝΙΚΟ ΣΥΝΟΛΟ</td><td></td><td></td>
-    <td class="num">${fmt(totVol)}</td><td class="num">—</td></tr></tbody></table>`;
+  html+=`<tr class="totrow"><td>ΚΑΘΑΡΟ ΣΥΝΟΛΟ</td><td></td><td></td>
+    <td class="num">${fmt(totNet)}</td><td class="num">—</td></tr></tbody></table>`;
 
   const hasExplicit=Ls.some(L=>Object.keys(L.steelByDia).length);
   if(hasExplicit){
@@ -673,6 +749,17 @@ function buildRows(){
         "",Number(s.kg.toFixed(1))]);
     });
   });
+  // casting / ζούμι summary
+  rows.push([]);
+  rows.push(["ΣΚΥΡΟΔΕΤΗΣΗ ΑΝΑ ΣΤΑΘΜΗ","Τρόπος","Πρέσες","Καθαρό (m³)","Ζούμι (m³)","Παραγγελία (m³)",""]);
+  let tN=0,tW=0,tG=0,tP=0;
+  Object.values(state.results.levels).forEach(L=>{
+    rows.push([L.name, L.castMode==="kostoumi"?"Κουστούμι":"Μονολιθικά", L.pumps,
+      Number((L.netConcrete||0).toFixed(2)), Number((L.waste||0).toFixed(2)),
+      Number((L.grossConcrete||0).toFixed(2)), ""]);
+    tN+=L.netConcrete||0; tW+=L.waste||0; tG+=L.grossConcrete||0; tP+=L.pumps||0;
+  });
+  rows.push(["ΣΥΝΟΛΟ","",tP,Number(tN.toFixed(2)),Number(tW.toFixed(2)),Number(tG.toFixed(2)),""]);
   return rows;
 }
 function exportXlsx(){
@@ -693,3 +780,10 @@ function exportPdf(){
 
 /* ---------- init ---------- */
 renderBetonTbl();renderRebarTbl();
+
+// ζούμι/πρέσες global settings
+const pw=$("#pumpWaste"), dl=$("#defaultLoad");
+if(pw) pw.onchange=e=>{ state.pumpWaste=Math.max(0,parseFloat(e.target.value)||0);
+  if(state.results){recomputeWaste();renderResults();} };
+if(dl) dl.onchange=e=>{ state.defaultLoad=Math.max(1,parseFloat(e.target.value)||8);
+  if(state.results){recomputeWaste();renderResults();} };

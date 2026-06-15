@@ -31,7 +31,7 @@ html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
 button{font-family:inherit;cursor:pointer}
 input,select{font-family:inherit;font-size:13px}
 
-.app{display:grid;grid-template-rows:auto 1fr;height:100vh}
+.app{display:grid;grid-template-rows:auto 1fr auto;height:100vh}
 header{display:flex;align-items:center;gap:16px;padding:12px 20px;
   border-bottom:1px solid var(--line);background:var(--panel2)}
 .logo{font-weight:800;letter-spacing:-0.5px;font-size:17px}
@@ -145,6 +145,10 @@ table.edit input[type=color]{padding:2px;height:32px}
   padding:3px 5px;font-size:11px}
 .note{font-size:11px;color:var(--faint);line-height:1.5;margin-top:8px}
 hr.d{border:0;border-top:1px solid var(--line);margin:18px 0}
+.disclaimer{font-size:11px;line-height:1.5;color:var(--faint);background:var(--panel2);
+  border-top:1px solid var(--line);padding:10px 20px;text-align:justify}
+.disclaimer b{color:var(--muted)}
+.disclaimer u{color:var(--muted);text-decoration:none;border-bottom:1px dotted var(--faint)}
 </style>
 </head>
 <body>
@@ -255,6 +259,18 @@ hr.d{border:0;border-top:1px solid var(--line);margin:18px 0}
             <tbody></tbody>
           </table>
           <div class="addrow"><button class="btn ghost sm" id="addRebar">+ Διάμετρος</button></div>
+
+          <hr class="d">
+          <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Σκυροδέτηση — ζούμι / πρέσες</h3>
+          <p class="note" style="margin-top:0">Κάθε πρέσα κρατάει σταθερή ποσότητα μπετόν (ζούμι) που δεν ανακτάται. Προστίθεται στην παραγγελία ανά στάθμη, ανάλογα με το πλήθος πρεσών.</p>
+          <div style="display:flex;gap:14px;flex-wrap:wrap">
+            <label class="fld" style="flex:1;min-width:140px">Ζούμι ανά πρέσα (m³)
+              <input id="pumpWaste" type="number" step="0.05" min="0" value="0.75">
+            </label>
+            <label class="fld" style="flex:1;min-width:140px">Ενδεικτικό φορτίο πρέσας (m³)
+              <input id="defaultLoad" type="number" step="0.5" min="1" value="8">
+            </label>
+          </div>
         </div>
       </div>
 
@@ -266,6 +282,9 @@ hr.d{border:0;border-top:1px solid var(--line);margin:18px 0}
       </div>
     </section>
   </div>
+  <footer class="disclaimer">
+    <b>Σημείωση ακρίβειας &amp; χρήσης:</b> Τα αποτελέσματα είναι <u>ενδεικτικά</u> και εξαρτώνται από την ποιότητα των σχεδίων (κλειστά polylines, σωστές μονάδες, σωστή αντιστοίχιση layers) και των παραδοχών που εισάγετε. Η εφαρμογή δεν υποκαθιστά τη στατική μελέτη ή τον επιβλέποντα μηχανικό. Επαληθεύστε κάθε ποσότητα πριν από παραγγελία υλικών ή υποβολή. Οι απώλειες ζουμιού/πρεσών είναι εκτιμήσεις βάσει εμπειρικών τιμών και διαφέρουν ανά συνεργείο, εξοπλισμό και συνθήκες έργου. Ο χρήστης φέρει την πλήρη ευθύνη για τη χρήση των αποτελεσμάτων.
+  </footer>
 </div>
 <div class="toast" id="toast"></div>
 
