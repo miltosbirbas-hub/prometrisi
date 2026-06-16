@@ -35,6 +35,14 @@ const state = {
   pumpWaste: 0.75,        // m³ που κρατάει κάθε πρέσα (ζούμι)
   defaultLoad: 8,         // ενδεικτικό m³/πρέσα για αυτόματη εκτίμηση πλήθους πρεσών
   levelCasting: {},       // { levelName: {pumps:Number, mode:"mono"|"kostoumi"} }
+  // Πίνακας κοπής οπλισμού
+  barLength: 12,          // μήκος εμπορικής ράβδου (m)
+  cutAssume: {            // παραδοχές για εκτίμηση μηκών από DXF labels
+    storeyHeight: 3.00,   // καθαρό ύψος ορόφου (m) — μήκος διαμήκων κολώνας
+    lap: 0.60,            // μάτιση/αναμονή ανά ράβδο κολώνας (m)
+    cover: 0.05,          // επικάλυψη (m) για υπολογισμό συνδετήρα
+    hook: 0.10,           // μήκος γάντζου συνδετήρα (m) ανά άκρο
+  },
 };
 const ROLES = ["—","ΠΛΑΚΑ","ΥΠΟΣΤΥΛΩΜΑΤΑ","ΔΟΚΟΙ","ΤΟΙΧΙΟ","ΘΕΜΕΛΙΩΣΗ","ΟΠΛΙΣΜΟΣ","ΙΣΟΥΨΕΙΣ","ΑΓΝΟΗΣΗ"];
 
@@ -73,6 +81,90 @@ function isClosedPoly(e){
 function entityArea(e){
   if(e.type==="CIRCLE") return Math.PI*e.radius*e.radius;
   return shoelace(polyPoints(e));
+}
+
+/* ---------- Ανάγνωση labels οπλισμού από TEXT/MTEXT ---------- */
+// Επιστρέφει κείμενο όλων των TEXT/MTEXT ενός DXF
+function collectTexts(dxf){
+  const out=[];
+  (dxf.entities||[]).forEach(e=>{
+    if((e.type==="TEXT"||e.type==="MTEXT") && e.text){
+      // καθάρισμα MTEXT formatting codes \A1; {\f...} κλπ
+      let t=(""+e.text).replace(/\\[A-Za-z][^;]*;/g,"").replace(/[{}]/g,"").trim();
+      if(t) out.push(t);
+    }
+  });
+  return out;
+}
+// Parse ενός label. Τύποι:
+//  διαμήκεις: "4Φ20+8Φ16", "5Φ12", "3Φ14 Α+Κ"
+//  συνδετήρες/τσέρκια: "Σ Φ8/10", "ΣΦ10/10"  → Φ8 ανά 10cm
+//  πλέγμα/εσχάρα: "Φ12/15", "#Φ10/20", "Φ10/15 Α"  → Φ12 ανά 15cm
+function parseRebarLabel(raw){
+  const t=raw.replace(/\s+/g,"").toUpperCase().replace(/FI/g,"Φ");
+  const out={longit:[], stirrup:null, mesh:null};
+  // Συνδετήρας/τσέρκι: περιέχει Σ (όχι #). Το # δηλώνει εσχάρα/πλέγμα.
+  const isStirrup=/Σ/.test(t) && !/#/.test(t);
+  const spacingMatch=t.match(/Φ(\d{1,2})\/(\d{1,3})/);
+  if(spacingMatch){
+    const dia="Φ"+spacingMatch[1], step=parseInt(spacingMatch[2])/100; // cm→m
+    if(isStirrup) out.stirrup={dia, step};
+    else out.mesh={dia, step};
+    return out;
+  }
+  // Διαμήκεις: nΦd (+ nΦd)...
+  const re=/(\d+)Φ(\d{1,2})/g; let m;
+  while((m=re.exec(t))){ out.longit.push({count:parseInt(m[1]), dia:"Φ"+m[2]}); }
+  return (out.longit.length||out.stirrup||out.mesh)?out:null;
+}
+// Χτίζει αναλυτικό πίνακα κοπής από τα labels των DXF (εκτιμώμενα μήκη)
+function buildCutFromDxf(){
+  const A=state.cutAssume;
+  const items=[]; // {source, dia, count, lenEach, type}
+  state.files.filter(f=>f.kind==="dxf").forEach(f=>{
+    const texts=collectTexts(f.dxf);
+    // βρες διαστάσεις διατομών (π.χ. "40/40","100/25") — ΟΧΙ βήματα οπλισμού (Φ8/10)
+    const dims=texts.map(t=>{
+      // αφαίρεσε πρώτα τυχόν Φn/n ώστε να μη μπερδευτεί με διάσταση
+      const clean=t.replace(/Φ\s*\d{1,2}\s*\/\s*\d{1,3}/gi,"");
+      const m=clean.match(/\b(\d{2,3})\/(\d{2,3})\b/);
+      return m?{a:+m[1]/100,b:+m[2]/100}:null;
+    }).filter(Boolean);
+    const avgDim = dims.length ? {a:dims.reduce((s,d)=>s+d.a,0)/dims.length, b:dims.reduce((s,d)=>s+d.b,0)/dims.length} : {a:0.40,b:0.40};
+    texts.forEach(t=>{
+      const p=parseRebarLabel(t); if(!p) return;
+      // διαμήκεις → μήκος = ύψος ορόφου + μάτιση
+      p.longit.forEach(L=>{
+        items.push({source:f.level||f.name, dia:L.dia, count:L.count,
+          lenEach:+(A.storeyHeight+A.lap).toFixed(2), type:"διαμήκης"});
+      });
+      // συνδετήρας → πλήθος = ύψος/βήμα, μήκος = περίμετρος διατομής - επικαλύψεις + γάντζοι
+      if(p.stirrup){
+        const a=avgDim.a, b=avgDim.b;
+        const perim = 2*((a-2*A.cover)+(b-2*A.cover)) + 2*A.hook;
+        const n = Math.ceil(A.storeyHeight/p.stirrup.step)+1;
+        items.push({source:f.level||f.name, dia:p.stirrup.dia, count:n,
+          lenEach:+perim.toFixed(2), type:"συνδετήρας"});
+      }
+      // εσχάρα/πλέγμα → δύσκολο χωρίς επιφάνεια· καταγράφεται ως σημείωση
+      // (παραλείπεται από αυτόματο υπολογισμό μήκους)
+    });
+  });
+  // συγκεντρωτικά ανά διάμετρο
+  const byDia={};
+  items.forEach(it=>{
+    if(!byDia[it.dia]) byDia[it.dia]={dia:it.dia, totLen:0, count:0};
+    byDia[it.dia].totLen += it.count*it.lenEach;
+    byDia[it.dia].count  += it.count;
+  });
+  return {items, byDia};
+}
+// Βάρος ανά μέτρο για διάμετρο (από state.rebar ή τύπο 0.00617·d²)
+function kgPerM(dia){
+  const r=state.rebar.find(x=>x.dia===dia);
+  if(r) return r.kgm;
+  const n=parseInt(dia.replace(/\D/g,""))||0;
+  return +(n*n*0.00617).toFixed(3);
 }
 
 /* ---------- File handling ---------- */
@@ -571,13 +663,35 @@ function renderResults(){
       ${dias.map(d=>`<td class="num">${S.total.dia[d]?fmt(S.total.dia[d].kg,0):"—"}</td>`).join("")}</tr>
       </tbody></table>`;
 
-    // steel by diameter (kg) summary table
+    // ===== ΠΙΝΑΚΑΣ ΚΟΠΗΣ από τεύχος (αξιόπιστος) =====
     html+=`<h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">
-      <span class="pill steel"></span>Σίδηρος ανά διάμετρο (σύνολο κτιρίου)</h3>
-      <table class="tbl"><thead><tr><th>Διάμετρος</th><th class="num">Μήκος (m)</th><th class="num">Βάρος (kg)</th></tr></thead><tbody>`;
+      <span class="pill steel"></span>Πίνακας κοπής οπλισμού — από τεύχος (αξιόπιστος)</h3>
+      <p class="note" style="margin-top:0">Συγκεντρωτικά ανά διάμετρο, με πλήθος εμπορικών ράβδων ${fmt(state.barLength,0)} m. Τα μήκη είναι τα πραγματικά της μελέτης (Fespa).</p>
+      <table class="tbl"><thead><tr><th>Διάμετρος</th><th class="num">Μήκος (m)</th>
+      <th class="num">Βάρος (kg)</th><th class="num">Ράβδοι ${fmt(state.barLength,0)}m</th>
+      <th class="num">kg/m</th></tr></thead><tbody>`;
+    let tBars=0;
     dias.forEach(d=>{const v=S.total.dia[d]||{m:0,kg:0};
-      html+=`<tr><td>${d}</td><td class="num">${fmt(v.m)}</td><td class="num">${fmt(v.kg,0)}</td></tr>`;});
-    html+=`<tr class="totrow"><td>Σύνολο</td><td></td><td class="num">${fmt(S.total.steel,0)}</td></tr></tbody></table>`;
+      const kgm = v.m>0 ? v.kg/v.m : 0;
+      const bars = Math.ceil(v.m/(state.barLength||12));
+      tBars+=bars;
+      html+=`<tr><td>${d}</td><td class="num">${fmt(v.m)}</td><td class="num">${fmt(v.kg,0)}</td>
+        <td class="num">${bars}</td><td class="num">${fmt(kgm,3)}</td></tr>`;});
+    html+=`<tr class="totrow"><td>Σύνολο</td><td></td><td class="num">${fmt(S.total.steel,0)}</td>
+      <td class="num">${tBars}</td><td></td></tr></tbody></table>`;
+
+    // ανά στάθμη — πλήθος ράβδων
+    html+=`<h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">
+      Ράβδοι ${fmt(state.barLength,0)}m ανά στάθμη &amp; διάμετρο</h3>
+      <table class="tbl"><thead><tr><th>Στάθμη</th>
+      ${dias.map(d=>`<th class="num">${d}</th>`).join("")}<th class="num">Σύνολο</th></tr></thead><tbody>`;
+    S.levels.forEach(L=>{
+      let rowBars=0;
+      const cells=dias.map(d=>{ if(!L.dia[d]) return `<td class="num">—</td>`;
+        const b=Math.ceil(L.dia[d].m/(state.barLength||12)); rowBars+=b; return `<td class="num">${b}</td>`; });
+      html+=`<tr><td>όροφος ${L.level}</td>${cells.join("")}<td class="num"><b>${rowBars}</b></td></tr>`;
+    });
+    html+=`</tbody></table>`;
   }
 
   // ===== Σύγκριση μελέτη vs σχέδια =====
@@ -750,6 +864,55 @@ function renderDxfResults(){
   } else {
     html+=`<p class="note">Δεν εντοπίστηκαν layers οπλισμού στα DXF — ο σίδηρος υπολογίστηκε με τους συντελεστές kg/m³ της μελέτης.</p>`;
   }
+
+  // ===== ΑΝΑΛΥΤΙΚΟΣ ΠΙΝΑΚΑΣ ΚΟΠΗΣ από DXF labels (εκτιμώμενος) =====
+  const cut=buildCutFromDxf();
+  if(cut.items.length){
+    const A=state.cutAssume;
+    html+=`<h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted);margin-top:26px">
+      Αναλυτικός πίνακας κοπής — από DXF labels <span style="color:var(--warn)">(εκτιμώμενα μήκη)</span></h3>
+      <div style="background:var(--beton-soft);border:1px solid var(--beton);border-radius:8px;padding:9px 12px;margin-bottom:12px;font-size:11px;line-height:1.5;color:var(--ink)">
+      ⚠ Τα μήκη είναι <b>εκτιμήσεις</b> βάσει παραδοχών (ύψος ορόφου ${fmt(A.storeyHeight)}m, μάτιση ${fmt(A.lap)}m, επικάλυψη ${fmt(A.cover)}m, γάντζος ${fmt(A.hook)}m). Ρύθμισέ τες στην καρτέλα «Παραδοχές». Για παραγγελία χρησιμοποίησε τον πίνακα από το τεύχος.</div>
+      <table class="tbl"><thead><tr><th>Στάθμη</th><th>Τύπος</th><th>Διάμετρος</th>
+      <th class="num">Πλήθος</th><th class="num">Μήκος/τεμ (m)</th><th class="num">Ολικό (m)</th>
+      <th class="num">Βάρος (kg)</th></tr></thead><tbody>`;
+    // ομαδοποίηση ανά στάθμη
+    const bySrc={};
+    cut.items.forEach(it=>{(bySrc[it.source]=bySrc[it.source]||[]).push(it);});
+    let gTotKg=0, gTotBars={};
+    Object.entries(bySrc).forEach(([src,arr])=>{
+      html+=`<tr class="lvlhead"><td colspan="7">▸ ${src}</td></tr>`;
+      arr.forEach(it=>{
+        const tot=it.count*it.lenEach; const kg=tot*kgPerM(it.dia);
+        gTotKg+=kg;
+        html+=`<tr><td></td><td>${it.type}</td><td>${it.dia}</td>
+          <td class="num">${it.count}</td><td class="num">${fmt(it.lenEach)}</td>
+          <td class="num">${fmt(tot)}</td><td class="num">${fmt(kg,1)}</td></tr>`;
+      });
+    });
+    html+=`<tr class="totrow"><td colspan="6">ΕΚΤΙΜΩΜΕΝΟ ΣΥΝΟΛΟ ΟΠΛΙΣΜΟΥ (από labels)</td>
+      <td class="num">${fmt(gTotKg,0)} kg</td></tr></tbody></table>`;
+
+    // συγκεντρωτικό ανά διάμετρο + ράβδοι 12m + σύγκριση με τεύχος
+    html+=`<h4 style="font-size:12px;color:var(--muted);margin:14px 0 6px">Συγκεντρωτικά ανά διάμετρο (εκτίμηση DXF)</h4>
+      <table class="tbl"><thead><tr><th>Διάμετρος</th><th class="num">Ολικό μήκος (m)</th>
+      <th class="num">Βάρος (kg)</th><th class="num">Ράβδοι ${fmt(state.barLength,0)}m</th>
+      ${state.study?'<th class="num">Τεύχος (m)</th><th class="num">Απόκλιση</th>':''}</tr></thead><tbody>`;
+    Object.values(cut.byDia).sort((a,b)=>parseInt(a.dia.slice(1))-parseInt(b.dia.slice(1))).forEach(v=>{
+      const kg=v.totLen*kgPerM(v.dia); const bars=Math.ceil(v.totLen/(state.barLength||12));
+      let extra="";
+      if(state.study && state.study.total && state.study.total.dia[v.dia]){
+        const tm=state.study.total.dia[v.dia].m; const pct=tm?((v.totLen-tm)/tm*100):0;
+        const col=Math.abs(pct)>15?"color:var(--warn)":"color:var(--ok)";
+        extra=`<td class="num">${fmt(tm)}</td><td class="num" style="${col}">${(pct>0?"+":"")+fmt(pct,0)}%</td>`;
+      } else if(state.study){ extra=`<td class="num">—</td><td class="num">—</td>`; }
+      html+=`<tr><td>${v.dia}</td><td class="num">${fmt(v.totLen)}</td>
+        <td class="num">${fmt(kg,0)}</td><td class="num">${bars}</td>${extra}</tr>`;
+    });
+    html+=`</tbody></table>`;
+    if(state.study) html+=`<p class="note">Η στήλη «Απόκλιση» συγκρίνει την εκτίμηση από τα labels με τα πραγματικά μήκη του τεύχους. Μεγάλη απόκλιση = έλεγξε τις παραδοχές ή τα labels.</p>`;
+  }
+
   return html;
 }
 
@@ -802,6 +965,40 @@ function exportXlsx(){
   const ws=XLSX.utils.aoa_to_sheet(rows);
   ws["!cols"]=[{wch:16},{wch:20},{wch:12},{wch:8},{wch:14},{wch:18},{wch:16}];
   const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,"Προμέτρηση");
+
+  // Φύλλο: Πίνακας κοπής από DXF labels (εκτίμηση)
+  try{
+    const cut=buildCutFromDxf();
+    if(cut.items.length){
+      const cr=[["Στάθμη","Τύπος","Διάμετρος","Πλήθος","Μήκος/τεμ (m)","Ολικό (m)","Βάρος (kg)"]];
+      cut.items.forEach(it=>{const tot=it.count*it.lenEach;
+        cr.push([it.source,it.type,it.dia,it.count,Number(it.lenEach.toFixed(2)),
+          Number(tot.toFixed(2)),Number((tot*kgPerM(it.dia)).toFixed(1))]);});
+      cr.push([]);
+      cr.push(["ΑΝΑ ΔΙΑΜΕΤΡΟ","","","Ολικό μήκος (m)","Βάρος (kg)","Ράβδοι "+state.barLength+"m",""]);
+      Object.values(cut.byDia).sort((a,b)=>parseInt(a.dia.slice(1))-parseInt(b.dia.slice(1))).forEach(v=>{
+        cr.push([v.dia,"","",Number(v.totLen.toFixed(2)),Number((v.totLen*kgPerM(v.dia)).toFixed(1)),
+          Math.ceil(v.totLen/(state.barLength||12)),""]);});
+      const ws2=XLSX.utils.aoa_to_sheet(cr);
+      ws2["!cols"]=[{wch:16},{wch:14},{wch:10},{wch:12},{wch:14},{wch:14},{wch:12}];
+      XLSX.utils.book_append_sheet(wb,ws2,"Κοπή (DXF-εκτίμηση)");
+    }
+  }catch(e){console.warn(e);}
+
+  // Φύλλο: Πίνακας κοπής από τεύχος (αξιόπιστος)
+  if(state.study && state.study.total){
+    const S=state.study;
+    const allDia=new Set();S.levels.forEach(L=>Object.keys(L.dia).forEach(d=>allDia.add(d)));
+    const dias=[...allDia].sort((a,b)=>parseInt(a.slice(1))-parseInt(b.slice(1)));
+    const tr=[["Διάμετρος","Μήκος (m)","Βάρος (kg)","Ράβδοι "+state.barLength+"m"]];
+    dias.forEach(d=>{const v=S.total.dia[d]||{m:0,kg:0};
+      tr.push([d,Number(v.m.toFixed(2)),Number(v.kg.toFixed(1)),Math.ceil(v.m/(state.barLength||12))]);});
+    tr.push(["ΣΥΝΟΛΟ","",Number(S.total.steel.toFixed(1)),""]);
+    const ws3=XLSX.utils.aoa_to_sheet(tr);
+    ws3["!cols"]=[{wch:12},{wch:14},{wch:14},{wch:14}];
+    XLSX.utils.book_append_sheet(wb,ws3,"Κοπή (τεύχος)");
+  }
+
   XLSX.writeFile(wb,"prometrisi.xlsx");
 }
 function exportPdf(){
@@ -827,3 +1024,11 @@ if(pw) pw.onchange=e=>{ state.pumpWaste=Math.max(0,parseFloat(e.target.value)||0
   if(state.results){recomputeWaste();renderResults();} };
 if(dl) dl.onchange=e=>{ state.defaultLoad=Math.max(1,parseFloat(e.target.value)||8);
   if(state.results){recomputeWaste();renderResults();} };
+
+// Πίνακας κοπής — παραδοχές
+const rerender=()=>{ if(state.results||state.study) renderResults(); };
+const bl=$("#barLength"); if(bl) bl.onchange=e=>{ state.barLength=Math.max(6,parseFloat(e.target.value)||12); rerender(); };
+const sh=$("#storeyHeight"); if(sh) sh.onchange=e=>{ state.cutAssume.storeyHeight=Math.max(1,parseFloat(e.target.value)||3); rerender(); };
+const lp=$("#lap"); if(lp) lp.onchange=e=>{ state.cutAssume.lap=Math.max(0,parseFloat(e.target.value)||0); rerender(); };
+const cv=$("#cover"); if(cv) cv.onchange=e=>{ state.cutAssume.cover=Math.max(0,parseFloat(e.target.value)||0); rerender(); };
+const hk=$("#hook"); if(hk) hk.onchange=e=>{ state.cutAssume.hook=Math.max(0,parseFloat(e.target.value)||0); rerender(); };

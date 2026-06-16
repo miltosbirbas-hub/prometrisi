@@ -301,6 +301,29 @@ hr.d{border:0;border-top:1px solid var(--line);margin:18px 0}
               <input id="defaultLoad" type="number" step="0.5" min="1" value="8">
             </label>
           </div>
+
+          <hr class="d">
+          <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Πίνακας κοπής οπλισμού</h3>
+          <p class="note" style="margin-top:0">Για τον <b>αναλυτικό</b> πίνακα κοπής από DXF labels. Τα μήκη είναι εκτιμήσεις — ο αξιόπιστος πίνακας βγαίνει από το τεύχος.</p>
+          <div style="display:flex;gap:14px;flex-wrap:wrap">
+            <label class="fld" style="flex:1;min-width:120px">Εμπορική ράβδος (m)
+              <input id="barLength" type="number" step="1" min="6" value="12">
+            </label>
+            <label class="fld" style="flex:1;min-width:120px">Ύψος ορόφου (m)
+              <input id="storeyHeight" type="number" step="0.05" min="1" value="3.00">
+            </label>
+            <label class="fld" style="flex:1;min-width:120px">Μάτιση/αναμονή (m)
+              <input id="lap" type="number" step="0.05" min="0" value="0.60">
+            </label>
+          </div>
+          <div style="display:flex;gap:14px;flex-wrap:wrap">
+            <label class="fld" style="flex:1;min-width:120px">Επικάλυψη (m)
+              <input id="cover" type="number" step="0.005" min="0" value="0.05">
+            </label>
+            <label class="fld" style="flex:1;min-width:120px">Γάντζος συνδετήρα (m)
+              <input id="hook" type="number" step="0.01" min="0" value="0.10">
+            </label>
+          </div>
         </div>
       </div>
 

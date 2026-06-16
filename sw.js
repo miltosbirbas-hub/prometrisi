@@ -5,7 +5,7 @@
      αλλά λειτουργεί και offline αφού φορτωθούν μία φορά
    ΣΗΜΑΝΤΙΚΟ: ανέβασε νέα έκδοση αλλάζοντας το CACHE_VERSION σε κάθε deploy.
 */
-const CACHE_VERSION = "prometrisi-v1.5.0";
+const CACHE_VERSION = "prometrisi-v1.6.0";
 const SHELL_CACHE = CACHE_VERSION + "-shell";
 const CDN_CACHE   = CACHE_VERSION + "-cdn";
 
