@@ -224,7 +224,7 @@ async function handleFiles(list, kindHint){
         // Ζώνη 3: μόνο προβολή — δεν επιχειρείται ανάγνωση τεύχους
         toast(`«${f.name}» προστέθηκε για προβολή.`);
       } else {
-        // Ζώνη 2 (ή χωρίς hint): προσπάθεια ανάγνωσης ως τεύχος Fespa
+        // Ζώνη 2: προσπάθεια ανάγνωσης ως τεύχος προμέτρησης (όλα τα ελληνικά στατικά προγράμματα)
         try{
           const fullText=await extractPdfText(doc);
           const parsed=parseStudy(fullText);
@@ -234,7 +234,7 @@ async function handleFiles(list, kindHint){
             renderResults();
             const rt=document.querySelector('.tab[data-view="results"]'); if(rt) rt.click();
           } else {
-            toast(`«${f.name}»: δεν αναγνωρίστηκε ως τεύχος Fespa — προβάλλεται μόνο. (Για προβολή χρησιμοποίησε τη ζώνη 3.)`,true);
+            toast(`«${f.name}»: δεν αναγνωρίστηκε ως τεύχος προμέτρησης — προβάλλεται μόνο. (Για προβολή χρησιμοποίησε τη ζώνη 3.)`,true);
           }
         }catch(err){ console.warn("study parse failed",err);
           toast("Δεν διαβάστηκε ως τεύχος — προβάλλεται μόνο.",true); }
@@ -359,35 +359,47 @@ async function extractPdfText(doc){
 function gnum(s){ if(s==null) return 0; s=(""+s).trim(); if(!s||s==="-") return 0;
   return parseFloat(s.replace(/\./g,"").replace(/,/g,"."))||0; }
 
-// Detects & parses a Fespa-style structural study. Returns null if not recognised.
+// Αναγνώριση & ανάγνωση τεύχους προμέτρησης από ελληνικά στατικά προγράμματα.
+// Βασίζεται σε κοινές έννοιες (όγκος σκυροδέματος, βάρος οπλισμού, πίνακες Φ), όχι σε εταιρεία.
 function parseStudy(txt){
-  if(!/Συνολική προμέτρηση κτιρίου|Προμέτρηση:\s*Σύνολο/.test(txt)) return null;
-  const startIdx=txt.indexOf("Συνολική προμέτρηση κτιρίου");
-  const section = startIdx>=0 ? txt.slice(startIdx) : txt;
+  // Ανιχνευτής: χρειάζεται να μοιάζει με τεύχος προμέτρησης (όγκος σκυρ. + πίνακας Φ + στάθμες/σύνολο)
+  const looksLikeStudy =
+    /(προμέτρηση|προμετρηση|ποσότητ|ποσοτητ)/i.test(txt) &&
+    /(σκυροδ|σκυρόδ)/i.test(txt) &&
+    /Φ\s*\d{1,2}\s+[\d.,]+\s+[\d.,]+/.test(txt);
+  if(!looksLikeStudy) return null;
 
-  // materials (πολλαπλές μορφές: "Σκυρόδεμα: C30/37", "Σκυρόδεμα C25/30", ": C25/30")
-  const gradeM = txt.match(/Σκυρόδεμα[:\s]*\s*(C\d+\/\d+)/) || txt.match(/\bC(?:12|16|20|25|30|35|40|45|50)\/\d+\b/);
-  const steelM = txt.match(/Χάλυβας[:\s]*\s*(B\d+\w*)/) || txt.match(/\bB500[A-C]\b/);
+  // Βρες αρχή ενότητας προμέτρησης (αν υπάρχει συγκεντρωτικός τίτλος), αλλιώς όλο το κείμενο
+  const startMatch = txt.match(/(?:συνολική|συγκεντρωτικ|γενική)\s+προμέτρηση/i);
+  const section = startMatch ? txt.slice(startMatch.index) : txt;
 
-  // per-level blocks: "Σύνολο ορόφου :N"
-  const headerRe=/Προμέτρηση[:\s]/g;
-  const headers=[]; let hm; while((hm=headerRe.exec(section))) headers.push(hm.index);
+  // Υλικά (ανεκτικό σε μορφές)
+  const gradeM = txt.match(/Σκυρόδεμα[:\s]*\s*(C\d+\/\d+)/i) || txt.match(/\bC(?:12|16|20|25|30|35|40|45|50)\/\d+\b/);
+  const steelM = txt.match(/Χάλυβας[:\s]*\s*(B\d+\w*)/i) || txt.match(/\bB500[A-C]\b/);
 
+  // Όρια μπλοκ: τα ΕΠΟΜΕΝΑ markers σταθμών ή το σύνολο κτιρίου (όχι κάθε "Προμέτρηση",
+  // γιατί οι running headers σελίδων περιέχουν τη λέξη και κόβουν λάθος τα μπλοκ)
+  const boundRe=/(?:σύνολο\s+(?:ορόφου|οροφου|στάθμη[ςσ]?|σταθμη[ςσ]?)\s*:?\s*-?\d+)|(?:σύνολο\s+κτιρίου|γενικό\s+σύνολο|σύνολο\s+έργου)/gi;
+  const headers=[]; let hm; while((hm=boundRe.exec(section))) headers.push(hm.index);
+
+  // Στάθμες: κυρίως "Σύνολο ορόφου :N" αλλά και παραλλαγές. Απαιτεί λέξη-κλειδί συνόλου/ορόφου + αριθμό.
   const levels=[];
-  const lvlRe=/Σύνολο ορόφου\s*:\s*(-?\d+)/g; let lm;
+  const lvlRe=/(?:σύνολο\s+(?:ορόφου|οροφου|στάθμη[ςσ]?|σταθμη[ςσ]?|επιπέδου|επιπεδου)|(?:ορόφου|οροφου|στάθμη|σταθμη|επίπεδο|επιπεδο)\s+προμέτρηση)\s*:?\s*(-?\d+)/gi;
+  let lm; const seen=new Set();
   while((lm=lvlRe.exec(section))){
-    const lvl=lm[1];
-    const e0=lvlRe.lastIndex;
+    const lvl=lm[1]; const e0=lvlRe.lastIndex;
+    const key=lvl+"@"+lm.index; if(seen.has(key)) continue; seen.add(key);
     const next=headers.filter(h=>h>e0); const end=next.length?Math.min(...next):section.length;
-    const blk=section.slice(e0,end);
-    levels.push(parseBlock(lvl,blk));
+    const blk=section.slice(e0, Math.min(end, e0+2000));
+    const parsed=parseBlock(lvl,blk);
+    if(parsed.concrete>0 || Object.keys(parsed.dia).length) levels.push(parsed);
   }
 
-  // building total — anchor to the standalone final line, widen window
+  // Σύνολο κτιρίου: "Σύνολο κτιρίου", "Γενικό σύνολο", "Σύνολο έργου"
   let total=null;
-  const btm=section.match(/Προμέτρηση:\s*Σύνολο κτιρίου\s*\nΠοσότητες[\s\S]{0,1800}/);
-  if(btm) total=parseBlock("ΣΥΝΟΛΟ",btm[0]);
-  if(!total && levels.length){ // fallback: sum
+  const btm=section.match(/(?:σύνολο\s+κτιρίου|γενικό\s+σύνολο|σύνολο\s+έργου|συνολικά)[\s\S]{0,2000}/i);
+  if(btm) { const t=parseBlock("ΣΥΝΟΛΟ",btm[0]); if(t.concrete>0||Object.keys(t.dia).length) total=t; }
+  if(!total && levels.length){ // fallback: άθροισμα σταθμών
     total={level:"ΣΥΝΟΛΟ",concrete:0,steel:0,formwork:0,dia:{}};
     levels.forEach(L=>{total.concrete+=L.concrete;total.steel+=L.steel;total.formwork+=L.formwork;
       Object.entries(L.dia).forEach(([d,v])=>{total.dia[d]=total.dia[d]||{m:0,kg:0};total.dia[d].m+=v.m;total.dia[d].kg+=v.kg;});});
@@ -401,13 +413,19 @@ function parseStudy(txt){
 }
 function parseBlock(lvl,blk){
   const dia={};
-  const re=/Φ(\d{1,2})\s+([\d.,]+)\s+([\d.,]+)/g; let m;
+  // πίνακας οπλισμού: "Φn  μήκος  βάρος" (κοινό σε όλα τα προγράμματα)
+  const re=/Φ\s*(\d{1,2})\s+([\d.,]+)\s+([\d.,]+)/g; let m;
   while((m=re.exec(blk))){ const d="Φ"+m[1]; const mm=gnum(m[2]),kg=gnum(m[3]);
     if(!dia[d]) dia[d]={m:0,kg:0}; dia[d].m+=mm; dia[d].kg+=kg; }
-  const vol=blk.match(/Ογκος Σκυροδέματος\s*\[m3\]\s*([\d.,]+)/);
-  const wt=blk.match(/Βάρος σιδηρού οπλισμού\s*\[Kg\]\s*([\d.,]+)/);
-  const fw=blk.match(/Ολική επιφάνεια ξυλοτύπου\s*\[m²\]\s*([\d.,]+)/);
-  const ratio=blk.match(/Αναλογία Σιδ\/Σκυροδέμ\.\s*\[Kg\/m3\]\s*([\d.,]+)/);
+  // Όγκος σκυροδέματος: "Ογκος/Όγκος Σκυροδέματος [m3] 55,20" — value μετά το unit
+  const vol = blk.match(/[ΟΌ]γκος\s+[ΣΣ]κυροδ[έε]ματος\s*\[?m[3³]\]?\s*([\d.,]+)/i)
+           || blk.match(/σκυρόδεμα\s*\[?m[3³]\]?\s*([\d.,]+)/i);
+  // Βάρος οπλισμού: "Βάρος σιδηρού οπλισμού [Kg] 4159,75"
+  const wt  = blk.match(/Βάρος\s+(?:σιδηρού\s+)?(?:οπλισμού|χάλυβα|χαλυβα)\s*\[?[Kk]g[r]?\]?\s*([\d.,]+)/i);
+  // Ξυλότυπος: "Ολική επιφάνεια ξυλοτύπου [m²] 152,70"
+  const fw  = blk.match(/(?:[ΟΌ]λική\s+επιφάνεια\s+ξυλοτύπου|ξυλότυπος|ξυλοτυπος)\s*\[?m[²2]\]?\s*([\d.,]+)/i);
+  // Αναλογία kg/m3
+  const ratio = blk.match(/[ΑΆ]ναλογία[^\[]*\[?[Kk]g\/m[3³]\]?\s*([\d.,]+)/i);
   return {
     level:lvl, dia,
     concrete: vol?gnum(vol[1]):0,
@@ -625,7 +643,7 @@ function renderResults(){
     // ===== ΠΙΝΑΚΑΣ ΚΟΠΗΣ από τεύχος (αξιόπιστος) =====
     html+=`<h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">
       <span class="pill steel"></span>Πίνακας κοπής οπλισμού — από τεύχος (αξιόπιστος)</h3>
-      <p class="note" style="margin-top:0">Συγκεντρωτικά ανά διάμετρο, με πλήθος εμπορικών ράβδων ${fmt(state.barLength,0)} m. Τα μήκη είναι τα πραγματικά της μελέτης (Fespa).</p>
+      <p class="note" style="margin-top:0">Συγκεντρωτικά ανά διάμετρο, με πλήθος εμπορικών ράβδων ${fmt(state.barLength,0)} m. Τα μήκη είναι τα πραγματικά της μελέτης.</p>
       <table class="tbl"><thead><tr><th>Διάμετρος</th><th class="num">Μήκος (m)</th>
       <th class="num">Βάρος (kg)</th><th class="num">Ράβδοι ${fmt(state.barLength,0)}m</th>
       <th class="num">kg/m</th></tr></thead><tbody>`;
