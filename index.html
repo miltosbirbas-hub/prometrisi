@@ -168,13 +168,13 @@ hr.d{border:0;border-top:1px solid var(--line);margin:18px 0}
 <div class="app">
   <header>
     <div class="logo"><span class="a">προ</span><span class="b">μέτρηση</span></div>
-    <div class="tag">Μπετόν &amp; Οπλισμός ανά στάθμη · DXF / PDF</div>
+    <div class="tag">Σχέδια + τεύχος → ποσότητες &amp; κοπή οπλισμού</div>
     <div class="sp"></div>
     <button id="installBtn" class="btn ghost sm" style="display:none;width:auto;margin-right:8px">⬇ Εγκατάσταση</button>
     <div class="tabs">
       <button class="tab active" data-view="viewer">Σχέδια</button>
       <button class="tab" data-view="assumptions">Παραδοχές</button>
-      <button class="tab" data-view="results">Προμέτρηση &amp; Τεύχος</button>
+      <button class="tab" data-view="results">Ποσότητες &amp; Κοπή</button>
     </div>
   </header>
 
@@ -208,27 +208,15 @@ hr.d{border:0;border-top:1px solid var(--line);margin:18px 0}
         <div class="flist" id="flist"><div class="note">Κανένα αρχείο ακόμη.</div></div>
       </div>
 
-      <div class="sec" id="lvlSec" style="display:none">
-        <h3>Στάθμη ενεργού DXF</h3>
-        <label class="fld">Όνομα στάθμης
-          <input id="lvlName" placeholder="π.χ. Υπόγειο, Ισόγειο, Α' Όροφος">
+      <div class="sec" id="dxfSec" style="display:none">
+        <h3>Ενεργό σχέδιο</h3>
+        <label class="fld">Όνομα / στάθμη
+          <input id="lvlName" placeholder="π.χ. Ισόγειο">
         </label>
-        <label class="fld">Μονάδες σχεδίου
-          <select id="units">
-            <option value="0.001">Χιλιοστά (mm)</option>
-            <option value="0.01">Εκατοστά (cm)</option>
-            <option value="1" selected>Μέτρα (m)</option>
-          </select>
-        </label>
+        <div class="note" id="dxfInfo">—</div>
+        <button class="btn" id="readRebarBtn" style="margin-top:10px">Διάβασε οπλισμό από σχέδιο</button>
+        <div class="note" style="margin-top:8px">Διαβάζει τα labels οπλισμού (π.χ. 4Φ20+8Φ16, Σ Φ8/10) και βγάζει πίνακα κοπής στην καρτέλα «Προμέτρηση».</div>
       </div>
-
-      <div class="sec" id="layerSec" style="display:none">
-        <h3>Layers ενεργού DXF</h3>
-        <div class="layerlist" id="layerlist"></div>
-        <div class="note">Αντιστοίχισε κάθε layer σε ρόλο. Τα κλειστά polylines μετρώνται ως εμβαδά μπετόν· οι γραμμές οπλισμού ως μήκη σιδήρου.</div>
-      </div>
-
-      <button class="btn" id="calcBtn" disabled>Υπολογισμός προμέτρησης (DXF)</button>
     </aside>
 
     <section class="content">
@@ -238,7 +226,7 @@ hr.d{border:0;border-top:1px solid var(--line);margin:18px 0}
           <div class="empty" id="vEmpty">
             <div>
               <div class="big">⬓</div>
-              Ανέβασε DXF/PDF σχεδίων για προβολή, ή το στατικό τεύχος (PDF) για αυτόματη ανάγνωση ποσοτήτων.
+              Ανέβασε σχέδιο (DXF) για προβολή ατόφια, ή τεύχος (PDF) για αυτόματες ποσότητες.
             </div>
           </div>
           <div class="viewer-wrap" id="dxfViewer" style="display:none">
@@ -268,43 +256,11 @@ hr.d{border:0;border-top:1px solid var(--line);margin:18px 0}
       <!-- ASSUMPTIONS -->
       <div class="view" id="view-assumptions">
         <div class="panel-pad">
-          <h1 class="h1">Παραδοχές μελέτης</h1>
-          <p class="sub">Ρόλοι στοιχείων, πάχη/ύψη μπετόν και συντελεστές οπλισμού. Εφαρμόζονται σε όλες τις στάθμες.</p>
+          <h1 class="h1">Παραδοχές</h1>
+          <p class="sub">Ρυθμίσεις για τον πίνακα κοπής οπλισμού από το σχέδιο.</p>
 
-          <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Στοιχεία μπετόν</h3>
-          <table class="edit" id="betonTbl">
-            <thead><tr>
-              <th>Ρόλος</th><th>Τύπος μέτρησης</th><th>Πάχος / Ύψος (m)</th>
-              <th>kg σιδ. / m³ (default)</th><th>Χρώμα</th><th></th>
-            </tr></thead>
-            <tbody></tbody>
-          </table>
-          <div class="addrow"><button class="btn ghost sm" id="addBeton">+ Ρόλος μπετόν</button></div>
-
-          <hr class="d">
-          <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Οπλισμός — βάρη ανά διάμετρο</h3>
-          <p class="note" style="margin-top:0">Όταν ένα layer οπλισμού φέρει διάμετρο (π.χ. layer "Φ12"), το μήκος × βάρος/m δίνει kg. Default: χάλυβας B500C, ρ=7850 kg/m³.</p>
-          <table class="edit" id="rebarTbl">
-            <thead><tr><th>Διάμετρος</th><th>kg / m</th><th>Layer keyword</th><th></th></tr></thead>
-            <tbody></tbody>
-          </table>
-          <div class="addrow"><button class="btn ghost sm" id="addRebar">+ Διάμετρος</button></div>
-
-          <hr class="d">
-          <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Σκυροδέτηση — ζούμι / πρέσες</h3>
-          <p class="note" style="margin-top:0">Κάθε πρέσα κρατάει σταθερή ποσότητα μπετόν (ζούμι) που δεν ανακτάται. Προστίθεται στην παραγγελία ανά στάθμη, ανάλογα με το πλήθος πρεσών.</p>
-          <div style="display:flex;gap:14px;flex-wrap:wrap">
-            <label class="fld" style="flex:1;min-width:140px">Ζούμι ανά πρέσα (m³)
-              <input id="pumpWaste" type="number" step="0.05" min="0" value="0.75">
-            </label>
-            <label class="fld" style="flex:1;min-width:140px">Ενδεικτικό φορτίο πρέσας (m³)
-              <input id="defaultLoad" type="number" step="0.5" min="1" value="8">
-            </label>
-          </div>
-
-          <hr class="d">
           <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Πίνακας κοπής οπλισμού</h3>
-          <p class="note" style="margin-top:0">Για τον <b>αναλυτικό</b> πίνακα κοπής από DXF labels. Τα μήκη είναι εκτιμήσεις — ο αξιόπιστος πίνακας βγαίνει από το τεύχος.</p>
+          <p class="note" style="margin-top:0">Από τα labels του σχεδίου (4Φ20+8Φ16, Σ Φ8/10) βγαίνει πίνακας κοπής. Το πλήθος &amp; οι διάμετροι διαβάζονται ακριβώς· τα μήκη εκτιμώνται με τις παρακάτω παραδοχές.</p>
           <div style="display:flex;gap:14px;flex-wrap:wrap">
             <label class="fld" style="flex:1;min-width:120px">Εμπορική ράβδος (m)
               <input id="barLength" type="number" step="1" min="6" value="12">
@@ -324,6 +280,15 @@ hr.d{border:0;border-top:1px solid var(--line);margin:18px 0}
               <input id="hook" type="number" step="0.01" min="0" value="0.10">
             </label>
           </div>
+
+          <hr class="d">
+          <h3 style="font-size:12px;text-transform:uppercase;letter-spacing:1px;color:var(--muted)">Βάρη οπλισμού ανά διάμετρο</h3>
+          <p class="note" style="margin-top:0">Χρησιμοποιούνται για μετατροπή μήκους σε κιλά. Default: χάλυβας B500C.</p>
+          <table class="edit" id="rebarTbl">
+            <thead><tr><th>Διάμετρος</th><th>kg / m</th><th></th></tr></thead>
+            <tbody></tbody>
+          </table>
+          <div class="addrow"><button class="btn ghost sm" id="addRebar">+ Διάμετρος</button></div>
         </div>
       </div>
 
@@ -336,7 +301,7 @@ hr.d{border:0;border-top:1px solid var(--line);margin:18px 0}
     </section>
   </div>
   <footer class="disclaimer">
-    <b>Σημείωση ακρίβειας &amp; χρήσης:</b> Τα αποτελέσματα είναι <u>ενδεικτικά</u> και εξαρτώνται από την ποιότητα των σχεδίων (κλειστά polylines, σωστές μονάδες, σωστή αντιστοίχιση layers) και των παραδοχών που εισάγετε. Η εφαρμογή δεν υποκαθιστά τη στατική μελέτη ή τον επιβλέποντα μηχανικό. Επαληθεύστε κάθε ποσότητα πριν από παραγγελία υλικών ή υποβολή. Οι απώλειες ζουμιού/πρεσών είναι εκτιμήσεις βάσει εμπειρικών τιμών και διαφέρουν ανά συνεργείο, εξοπλισμό και συνθήκες έργου. Ο χρήστης φέρει την πλήρη ευθύνη για τη χρήση των αποτελεσμάτων.
+    <b>Σημείωση ακρίβειας &amp; χρήσης:</b> Οι ποσότητες από το <u>τεύχος</u> είναι αυτές της στατικής μελέτης. Ο πίνακας κοπής από το <u>σχέδιο</u> διαβάζει πλήθος &amp; διαμέτρους από τα labels, αλλά τα <u>μήκη είναι εκτιμήσεις</u> βάσει παραδοχών (ύψος ορόφου, μάτιση, γάντζοι) και διαφέρουν ανά έργο. Η εφαρμογή δεν υποκαθιστά τη στατική μελέτη ή τον επιβλέποντα μηχανικό. Επαληθεύστε κάθε ποσότητα πριν από παραγγελία υλικών. Ο χρήστης φέρει την πλήρη ευθύνη για τη χρήση των αποτελεσμάτων.
   </footer>
 </div>
 <div class="toast" id="toast"></div>
