@@ -51,11 +51,21 @@ header .sp{flex:1}
 .view{display:none;height:100%;overflow:auto}
 .view.active{display:block}
 
-.drop{display:block;border:2px dashed var(--line);border-radius:12px;padding:26px 16px;text-align:center;
-  color:var(--muted);transition:.15s;margin-bottom:14px}
-.drop.hot{border-color:var(--beton);background:var(--beton-soft);color:var(--ink)}
-.drop b{color:var(--ink)}
-.drop small{display:block;margin-top:6px;color:var(--faint)}
+.zones{display:flex;flex-direction:column;gap:9px;margin-bottom:16px}
+.zone{display:flex;flex-direction:column;gap:3px;border:1.5px dashed var(--line);
+  border-radius:11px;padding:12px 13px;cursor:pointer;transition:.15s;background:var(--panel2)}
+.zone:hover{background:var(--panel)}
+.zone .zn{font-size:13px;font-weight:700;color:var(--ink);display:flex;align-items:center;gap:7px}
+.zone .znum{display:inline-grid;place-items:center;width:18px;height:18px;border-radius:50%;
+  font-size:11px;font-weight:800;color:#0b0f14}
+.zone .zd{font-size:11px;line-height:1.45;color:var(--muted)}
+.zone .zhint{font-size:10px;color:var(--faint);margin-top:2px;letter-spacing:.3px}
+/* χρωματικός κώδικας ανά τύπο */
+.zdxf{border-color:#3a2c15}.zdxf .znum{background:var(--beton)}.zdxf:hover{border-color:var(--beton)}
+.zpdf{border-color:#14303d}.zpdf .znum{background:var(--steel)}.zpdf:hover{border-color:var(--steel)}
+.zview{border-color:var(--line)}.zview .znum{background:var(--muted)}.zview:hover{border-color:var(--muted)}
+.zone.hot{background:var(--beton-soft);border-style:solid}
+.zpdf.hot{background:var(--steel-soft)}
 
 .sec{margin:18px 0}
 .sec h3{font-size:11px;text-transform:uppercase;letter-spacing:1.2px;color:var(--muted);
@@ -67,6 +77,8 @@ header .sp{flex:1}
 .fitem .ic.dxf{background:var(--beton-soft);color:var(--beton)}
 .fitem .ic.pdf{background:var(--steel-soft);color:var(--steel)}
 .fitem .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.frole{font-size:9px;text-transform:uppercase;letter-spacing:.5px;color:var(--faint);
+  border:1px solid var(--line);border-radius:4px;padding:1px 4px;margin-left:4px}
 .fitem .rm{background:transparent;border:0;color:var(--faint);font-size:15px;padding:0 4px}
 .fitem .rm:hover{color:var(--warn)}
 
@@ -168,11 +180,28 @@ hr.d{border:0;border-top:1px solid var(--line);margin:18px 0}
 
   <div class="main">
     <aside class="side">
-      <label class="drop" id="drop" for="file">
-        <b>Σύρε ή κάνε κλικ — DXF / PDF</b>
-        <small>ξυλότυποι, κατόψεις, τομές, τοπογραφικό, στατικό τεύχος</small>
-      </label>
-      <input type="file" id="file" multiple accept=".dxf,.pdf" style="display:none">
+      <div class="zones">
+        <label class="zone zdxf" for="fileDxf">
+          <span class="zn"><span class="znum">1</span> DXF ξυλοτύπου</span>
+          <span class="zd">Σχέδιο ανά στάθμη — μετράει εμβαδά &amp; μήκη, υπολογίζει μπετόν &amp; οπλισμό.</span>
+          <span class="zhint">Σύρε ή κλικ · .dxf</span>
+        </label>
+        <input type="file" id="fileDxf" multiple accept=".dxf" style="display:none">
+
+        <label class="zone zpdf" for="filePdf">
+          <span class="zn"><span class="znum">2</span> PDF τεύχους (Fespa)</span>
+          <span class="zd">Στατικό τεύχος προμέτρησης — διαβάζει αυτόματα ποσότητες μελέτης ανά στάθμη.</span>
+          <span class="zhint">Σύρε ή κλικ · .pdf</span>
+        </label>
+        <input type="file" id="filePdf" multiple accept=".pdf" style="display:none">
+
+        <label class="zone zview" for="fileView">
+          <span class="zn"><span class="znum">3</span> PDF προβολής</span>
+          <span class="zd">Ξυλότυποι, κατόψεις, τομές, τοπογραφικό — μόνο για αναφορά/προβολή.</span>
+          <span class="zhint">Σύρε ή κλικ · .pdf</span>
+        </label>
+        <input type="file" id="fileView" multiple accept=".pdf" style="display:none">
+      </div>
 
       <div class="sec">
         <h3>Αρχεία</h3>
@@ -199,7 +228,7 @@ hr.d{border:0;border-top:1px solid var(--line);margin:18px 0}
         <div class="note">Αντιστοίχισε κάθε layer σε ρόλο. Τα κλειστά polylines μετρώνται ως εμβαδά μπετόν· οι γραμμές οπλισμού ως μήκη σιδήρου.</div>
       </div>
 
-      <button class="btn" id="calcBtn" disabled>Υπολογισμός προμέτρησης</button>
+      <button class="btn" id="calcBtn" disabled>Υπολογισμός προμέτρησης (DXF)</button>
     </aside>
 
     <section class="content">

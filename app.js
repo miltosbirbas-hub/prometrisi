@@ -87,17 +87,26 @@ function getParser(){
   return parser;
 }
 
-$("#file").addEventListener("change",e=>handleFiles(e.target.files));
-const drop=$("#drop");
-drop.style.cursor="pointer";
-// Το click ανοίγει native μέσω <label for="file"> — εδώ μόνο drag & drop
-["dragover","dragenter"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.add("hot");}));
-["dragleave","drop"].forEach(ev=>drop.addEventListener(ev,e=>{e.preventDefault();drop.classList.remove("hot");}));
-drop.addEventListener("drop",e=>{e.preventDefault();handleFiles(e.dataTransfer.files);});
+// Τρεις ζώνες: DXF ξυλοτύπου, PDF τεύχους, PDF προβολής
+function wireZone(inputId, zoneSel, kindHint){
+  const inp=$("#"+inputId), zone=document.querySelector(zoneSel);
+  if(!inp||!zone) return;
+  inp.addEventListener("change",e=>{ handleFiles(e.target.files, kindHint); e.target.value=""; });
+  ["dragover","dragenter"].forEach(ev=>zone.addEventListener(ev,e=>{e.preventDefault();zone.classList.add("hot");}));
+  ["dragleave"].forEach(ev=>zone.addEventListener(ev,e=>{e.preventDefault();zone.classList.remove("hot");}));
+  zone.addEventListener("drop",e=>{e.preventDefault();zone.classList.remove("hot");handleFiles(e.dataTransfer.files,kindHint);});
+}
+wireZone("fileDxf",  ".zdxf",  "dxf");
+wireZone("filePdf",  ".zpdf",  "teuxos");
+wireZone("fileView", ".zview", "view");
 
-async function handleFiles(list){
+async function handleFiles(list, kindHint){
   for(const f of list){
     const ext=f.name.split(".").pop().toLowerCase();
+    // έλεγχος ότι το αρχείο ταιριάζει με τη ζώνη
+    if(kindHint==="dxf" && ext!=="dxf"){ toast(`Η ζώνη 1 δέχεται μόνο DXF — το «${f.name}» δεν είναι DXF.`,true); continue; }
+    if((kindHint==="teuxos"||kindHint==="view") && ext!=="pdf"){ toast(`Η ζώνη δέχεται μόνο PDF — το «${f.name}» δεν είναι PDF.`,true); continue; }
+
     if(ext==="dxf"){
       const txt=await f.text();
       let dxf;
@@ -107,30 +116,37 @@ async function handleFiles(list){
       const layers=collectLayers(dxf);
       const roles={};
       layers.forEach(l=>roles[l.name]=guessRole(l.name));
-      state.files.push({id:uid(),name:f.name,kind:"dxf",dxf,layers,
+      state.files.push({id:uid(),name:f.name,kind:"dxf",role:"ξυλότυπος",dxf,layers,
         level:guessLevel(f.name),units:1,layerRoles:roles});
+      toast(`✓ DXF «${f.name}» — αντιστοίχισε layers & πάτησε «Υπολογισμός».`);
     } else if(ext==="pdf"){
       const buf=await f.arrayBuffer();
       let doc; try{ doc=await pdfjsLib.getDocument({data:buf.slice(0)}).promise; }
       catch(err){ toast("Σφάλμα PDF: "+f.name,true); continue; }
-      const fileObj={id:uid(),name:f.name,kind:"pdf",pdfDoc:doc,page:1,scale:1.3};
+      const fileObj={id:uid(),name:f.name,kind:"pdf",
+        role: kindHint==="view"?"προβολή":"τεύχος",
+        pdfDoc:doc,page:1,scale:1.3};
       state.files.push(fileObj);
-      // try to parse as structural study (τεύχος)
-      try{
-        const fullText=await extractPdfText(doc);
-        const parsed=parseStudy(fullText);
-        if(parsed){ parsed.fileName=f.name; state.study=parsed;
-          const tot = parsed.total ? fmt(parsed.total.concrete) : "—";
-          toast(`✓ Τεύχος: ${parsed.levels.length} στάθμες, ${tot} m³ — δες «Προμέτρηση & Τεύχος»`);
-          renderResults();
-          // αυτόματη μετάβαση στην καρτέλα αποτελεσμάτων
-          const rt=document.querySelector('.tab[data-view="results"]'); if(rt) rt.click();
-        } else {
-          // PDF που δεν είναι αναγνωρίσιμο τεύχος Fespa — απλό σχέδιο/ξυλότυπος
-          toast(`«${f.name}»: προβολή μόνο (δεν είναι τεύχος Fespa με πίνακες προμέτρησης).`);
-        }
-      }catch(err){ console.warn("study parse failed",err);
-        toast("Δεν διαβάστηκε το PDF ως τεύχος — προβάλλεται μόνο.",true); }
+
+      if(kindHint==="view"){
+        // Ζώνη 3: μόνο προβολή — δεν επιχειρείται ανάγνωση τεύχους
+        toast(`«${f.name}» προστέθηκε για προβολή.`);
+      } else {
+        // Ζώνη 2 (ή χωρίς hint): προσπάθεια ανάγνωσης ως τεύχος Fespa
+        try{
+          const fullText=await extractPdfText(doc);
+          const parsed=parseStudy(fullText);
+          if(parsed){ parsed.fileName=f.name; state.study=parsed;
+            const tot = parsed.total ? fmt(parsed.total.concrete) : "—";
+            toast(`✓ Τεύχος: ${parsed.levels.length} στάθμες, ${tot} m³`);
+            renderResults();
+            const rt=document.querySelector('.tab[data-view="results"]'); if(rt) rt.click();
+          } else {
+            toast(`«${f.name}»: δεν αναγνωρίστηκε ως τεύχος Fespa — προβάλλεται μόνο. (Για προβολή χρησιμοποίησε τη ζώνη 3.)`,true);
+          }
+        }catch(err){ console.warn("study parse failed",err);
+          toast("Δεν διαβάστηκε ως τεύχος — προβάλλεται μόνο.",true); }
+      }
     } else { toast("Μη υποστηριζόμενο: "+f.name,true); continue; }
   }
   renderFiles();
@@ -179,7 +195,7 @@ function renderFiles(){
     d.style.cursor="pointer";
     if(f.id===state.activeId) d.style.borderColor=f.kind==="dxf"?"var(--beton)":"var(--steel)";
     d.innerHTML=`<span class="ic ${f.kind}">${f.kind.toUpperCase()}</span>
-      <span class="nm">${f.name}</span>
+      <span class="nm">${f.name}${f.role?` <span class="frole">${f.role}</span>`:""}</span>
       <button class="rm" title="Αφαίρεση">×</button>`;
     d.querySelector(".nm").onclick=()=>setActive(f.id);
     d.querySelector(".ic").onclick=()=>setActive(f.id);
